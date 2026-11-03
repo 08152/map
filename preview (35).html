@@ -1,0 +1,2665 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MINI ROYALE – Cartoon Island</title>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{overflow:hidden;background:#76b9df;font-family:Arial;color:white}
+canvas{display:block}
+
+#panel{
+position:fixed;z-index:10;top:12px;left:12px;width:295px;
+max-height:calc(100vh - 24px);overflow:auto;padding:16px;
+background:rgba(31,39,48,.96);border:1px solid #63717a;border-radius:10px;
+}
+
+h1{font-size:21px;letter-spacing:1.5px}
+.sub{font-size:11px;color:#c0d2de;margin-top:5px;line-height:1.6}
+.section{border-top:1px solid #55616b;margin-top:15px;padding-top:13px}
+.heading{font-size:11px;font-weight:bold;color:#a5dd9c;margin-bottom:10px;letter-spacing:1px}
+.info{font-size:12px;line-height:1.9;color:#e0e7e9}
+
+button{
+width:100%;padding:12px;margin-top:7px;border:0;border-radius:6px;
+background:#4d9a57;color:white;font-size:11px;font-weight:bold;cursor:pointer;
+}
+
+button:hover{filter:brightness(1.15)}
+button:disabled{opacity:.4;cursor:not-allowed}
+#export{background:#287bac}
+#exportHeight{background:#567e48}
+#exportTexture{background:#a17b48}
+
+#status{font-size:11px;line-height:1.6;color:#b9e5ad;margin-top:11px;overflow-wrap:anywhere;min-height:30px}
+#progress{height:5px;margin-top:9px;background:#46515a;border-radius:10px;overflow:hidden}
+#progressbar{width:0;height:100%;background:#8fce7d;transition:width .15s}
+.small{font-size:10px;line-height:1.6;color:#aebdc4;margin-top:8px}
+
+#bottom{
+position:fixed;bottom:13px;left:50%;transform:translateX(-50%);
+background:#26343edc;padding:10px 15px;border-radius:6px;
+font-size:11px;white-space:nowrap;pointer-events:none;
+}
+
+#error{
+position:fixed;z-index:100;top:15px;right:15px;display:none;
+max-width:420px;padding:14px;border-radius:8px;
+background:#9c3434;font-size:12px;line-height:1.6;
+}
+</style>
+</head>
+
+<body>
+
+<div id="panel">
+
+    <h1>MINI ROYALE</h1>
+
+    <div class="sub">
+        CARTOON ISLAND GENERATOR
+        <br>FORTNITE-INSPIRED CEL SHADING
+        <br>2400 × 2400 METERS
+    </div>
+
+    <div class="section">
+        <div class="heading">FARBSTIL</div>
+        <div class="info">
+            <span style="color:#78bd49">●</span> Grüner Boden
+            <br>
+            <span style="color:#999b99">●</span>
+            <span style="color:#696e70">●</span>
+            Zwei Grautöne für Hänge
+            <br>
+            <span style="color:#d9b982">●</span> Sandflächen
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="heading">WELTINFORMATIONEN</div>
+        <div class="info">
+            Kartengröße: 2400 × 2400 m
+            <br>Geländepunkte: 421 × 421
+            <br>Geländeschritt: 5,71 m
+            <br>Gebirge und Bergketten
+            <br>Hügel und tiefe Täler
+            <br>Viele natürliche Wege
+            <br>Trockene Becken
+            <br>Keine Höhle
+            <br>Keine Gebäude oder Bäume
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="heading">KAMERA</div>
+        <button id="topView">VOGELPERSPEKTIVE</button>
+        <button id="reset">KAMERA ZURÜCKSETZEN</button>
+    </div>
+
+    <div class="section">
+        <div class="heading">UEFN EXPORT</div>
+        <button id="export" disabled>INSEL ALS GLB EXPORTIEREN</button>
+        <button id="exportHeight" disabled>16-BIT HEIGHTMAP PNG</button>
+        <button id="exportTexture" disabled>GEMALTE TEXTUR PNG</button>
+    </div>
+
+    <div class="section">
+        <div class="heading">STATUS</div>
+        <div id="status">Lade 3D-Engine ...</div>
+        <div id="progress"><div id="progressbar"></div></div>
+        <div class="small">
+            Keine Texturbilder erforderlich. Farben werden automatisch erzeugt.
+        </div>
+    </div>
+
+</div>
+
+<div id="bottom">
+    LINKSKLICK: DREHEN · RECHTSKLICK: BEWEGEN · MAUSRAD: ZOOM
+</div>
+
+<div id="error"></div>
+
+
+<script>
+
+(async function(){
+
+"use strict";
+
+
+// =====================================================
+// 1. HILFSFUNKTIONEN
+// =====================================================
+
+const $ = id => document.getElementById(id);
+
+function showError(message){
+    $("error").style.display="block";
+    $("error").textContent=message;
+    $("status").textContent="Fehler: "+message;
+}
+
+function progress(value,message){
+    $("progressbar").style.width=value+"%";
+    $("status").textContent=message;
+}
+
+function frame(){
+    return new Promise(resolve=>requestAnimationFrame(resolve));
+}
+
+
+// =====================================================
+// 2. THREE.JS LADEN
+// =====================================================
+
+async function loadThree(){
+
+    const urls=[
+        "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js",
+        "https://unpkg.com/three@0.128.0/build/three.min.js"
+    ];
+
+    let lastError=null;
+
+    for(const url of urls){
+
+        try{
+
+            await new Promise((resolve,reject)=>{
+
+                const script=document.createElement("script");
+
+                script.src=url;
+                script.async=true;
+
+                script.onload=()=>{
+                    if(window.THREE){
+                        resolve();
+                    }else{
+                        reject(new Error("Three.js wurde nicht initialisiert."));
+                    }
+                };
+
+                script.onerror=()=>{
+                    script.remove();
+                    reject(new Error("CDN nicht erreichbar: "+url));
+                };
+
+                document.head.appendChild(script);
+
+            });
+
+            if(window.THREE){
+                return window.THREE;
+            }
+
+        }catch(error){
+
+            lastError=error;
+
+            console.warn(
+                "Three.js CDN-Ausweichversuch:",
+                url
+            );
+
+        }
+
+    }
+
+    throw lastError || new Error("Three.js konnte nicht geladen werden.");
+
+}
+
+
+let THREE;
+
+try{
+
+    progress(2,"Lade 3D-Engine ...");
+
+    THREE=await loadThree();
+
+}catch(error){
+
+    showError(
+        "Three.js konnte nicht geladen werden. " +
+        "Prüfe deine Internetverbindung oder probiere die Seite über einen lokalen Webserver."
+    );
+
+    console.error(error);
+
+    return;
+
+}
+
+
+// =====================================================
+// 3. WELT
+// =====================================================
+
+const MAP_SIZE=2400;
+const HALF=1200;
+
+const N=420;
+const GRID=N+1;
+const COUNT=GRID*GRID;
+
+const STEP=MAP_SIZE/N;
+
+const TEXTURE_SIZE=1024;
+
+let terrainGeometry;
+let terrainMesh;
+let terrainData;
+let terrainCanvas;
+let previewMesh;
+let islandGroup;
+
+let ready=false;
+
+
+// =====================================================
+// 4. SZENE
+// =====================================================
+
+const scene=new THREE.Scene();
+
+scene.background=new THREE.Color(0x76b9df);
+
+scene.fog=new THREE.Fog(
+    0x76b9df,
+    5000,
+    11000
+);
+
+
+const camera=new THREE.PerspectiveCamera(
+    48,
+    innerWidth/innerHeight,
+    .1,
+    15000
+);
+
+
+const renderer=new THREE.WebGLRenderer({
+
+    antialias:true,
+
+    powerPreference:"high-performance"
+
+});
+
+renderer.setPixelRatio(
+    Math.min(devicePixelRatio,1.5)
+);
+
+renderer.setSize(innerWidth,innerHeight);
+
+renderer.outputEncoding=THREE.sRGBEncoding;
+
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+
+renderer.toneMappingExposure=1.15;
+
+document.body.appendChild(renderer.domElement);
+
+
+// =====================================================
+// 5. KAMERASTEUERUNG OHNE ORBITCONTROLS
+// =====================================================
+
+const target=new THREE.Vector3(0,70,0);
+
+let yaw=.78;
+let pitch=.85;
+let distance=3700;
+
+let pointer=null;
+let dragButton=0;
+let previousX=0;
+let previousY=0;
+
+
+function updateCamera(){
+
+    pitch=clamp(pitch,.07,1.52);
+
+    distance=clamp(distance,100,8500);
+
+    camera.position.set(
+
+        target.x+distance*Math.sin(pitch)*Math.sin(yaw),
+
+        target.y+distance*Math.cos(pitch),
+
+        target.z+distance*Math.sin(pitch)*Math.cos(yaw)
+
+    );
+
+    camera.lookAt(target);
+
+}
+
+
+renderer.domElement.addEventListener("contextmenu",e=>{
+    e.preventDefault();
+});
+
+
+renderer.domElement.addEventListener("pointerdown",e=>{
+
+    pointer=e.pointerId;
+
+    dragButton=e.button;
+
+    previousX=e.clientX;
+
+    previousY=e.clientY;
+
+    renderer.domElement.setPointerCapture(e.pointerId);
+
+});
+
+
+renderer.domElement.addEventListener("pointermove",e=>{
+
+    if(pointer!==e.pointerId)return;
+
+    const dx=e.clientX-previousX;
+    const dy=e.clientY-previousY;
+
+    previousX=e.clientX;
+    previousY=e.clientY;
+
+
+    if(dragButton===0){
+
+        yaw-=dx*.005;
+
+        pitch+=dy*.005;
+
+    }else{
+
+        const right=new THREE.Vector3(
+            Math.cos(yaw),0,-Math.sin(yaw)
+        );
+
+        const pan=distance*.00065;
+
+        target.addScaledVector(right,-dx*pan);
+
+        target.y+=dy*pan;
+
+    }
+
+    updateCamera();
+
+});
+
+
+renderer.domElement.addEventListener("pointerup",e=>{
+
+    if(pointer===e.pointerId){
+        pointer=null;
+    }
+
+});
+
+renderer.domElement.addEventListener("pointercancel",()=>{
+    pointer=null;
+});
+
+
+renderer.domElement.addEventListener("wheel",e=>{
+
+    distance*=Math.exp(e.deltaY*.001);
+
+    updateCamera();
+
+},{passive:true});
+
+
+updateCamera();
+
+
+// =====================================================
+// 6. LICHT
+// =====================================================
+
+scene.add(new THREE.HemisphereLight(
+    0xe8f4ff,
+    0x7e725c,
+    1.7
+));
+
+
+const sun=new THREE.DirectionalLight(
+    0xfff5dc,
+    2.4
+);
+
+sun.position.set(-1300,2300,1400);
+
+scene.add(sun);
+
+
+// =====================================================
+// 7. CEL SHADING
+// =====================================================
+
+function createGradient(){
+
+    const data=new Uint8Array([
+
+        65,65,65,255,
+        105,105,105,255,
+        165,165,165,255,
+        235,235,235,255
+
+    ]);
+
+    const texture=new THREE.DataTexture(
+        data,
+        4,
+        1,
+        THREE.RGBAFormat
+    );
+
+    texture.magFilter=THREE.NearestFilter;
+
+    texture.minFilter=THREE.NearestFilter;
+
+    texture.generateMipmaps=false;
+
+    texture.needsUpdate=true;
+
+    return texture;
+
+}
+
+const gradient=createGradient();
+
+
+// =====================================================
+// 8. OZEAN
+// =====================================================
+
+const sea=new THREE.Mesh(
+
+    new THREE.PlaneGeometry(6000,6000),
+
+    new THREE.MeshToonMaterial({
+
+        color:0x50acd6,
+
+        gradientMap:gradient,
+
+        side:THREE.DoubleSide
+
+    })
+
+);
+
+sea.rotation.x=-Math.PI/2;
+
+sea.position.y=-13;
+
+scene.add(sea);
+
+
+// =====================================================
+// 9. MATHEMATIK
+// =====================================================
+
+function clamp(v,a,b){
+    return Math.max(a,Math.min(b,v));
+}
+
+function lerp(a,b,t){
+    return a+(b-a)*t;
+}
+
+function smooth(a,b,v){
+
+    const t=clamp((v-a)/(b-a),0,1);
+
+    return t*t*(3-2*t);
+
+}
+
+function gauss(x,z,cx,cz,rx,rz=rx){
+
+    return Math.exp(
+        -.5*(
+            ((x-cx)/rx)**2+
+            ((z-cz)/rz)**2
+        )
+    );
+
+}
+
+
+// =====================================================
+// 10. NOISE
+// =====================================================
+
+function hash(x,z){
+
+    let h=(
+        Math.imul(x|0,374761393)+
+        Math.imul(z|0,668265263)
+    )|0;
+
+    h=Math.imul(h^(h>>>13),1274126177);
+
+    h^=h>>>16;
+
+    return (h>>>0)/4294967295*2-1;
+
+}
+
+
+function noise(x,z){
+
+    const ix=Math.floor(x);
+    const iz=Math.floor(z);
+
+    const fx=x-ix;
+    const fz=z-iz;
+
+    const u=fx*fx*(3-2*fx);
+    const v=fz*fz*(3-2*fz);
+
+    const a=hash(ix,iz);
+    const b=hash(ix+1,iz);
+    const c=hash(ix,iz+1);
+    const d=hash(ix+1,iz+1);
+
+    return lerp(
+        lerp(a,b,u),
+        lerp(c,d,u),
+        v
+    );
+
+}
+
+
+function fbm(x,z,octaves=4){
+
+    let result=0;
+    let amplitude=.5;
+    let total=0;
+
+    for(let i=0;i<octaves;i++){
+
+        result+=noise(x,z)*amplitude;
+
+        total+=amplitude;
+
+        x*=2.03;
+        z*=2.03;
+
+        amplitude*=.5;
+
+    }
+
+    return result/total;
+
+}
+
+
+function ridge(x,z){
+    return 1-Math.abs(fbm(x,z,4));
+}
+
+
+// =====================================================
+// 11. ZUFALL
+// =====================================================
+
+let seed=735192;
+
+function random(){
+
+    seed=(
+        Math.imul(seed,1664525)+1013904223
+    )>>>0;
+
+    return seed/4294967296;
+
+}
+
+
+// =====================================================
+// 12. INSELGRENZE
+// =====================================================
+
+function islandRadius(angle){
+
+    return 1100*(
+
+        1+
+
+        .043*Math.sin(angle*3+.3)+
+
+        .034*Math.sin(angle*5+1.1)+
+
+        .021*Math.sin(angle*8+.8)+
+
+        .012*Math.sin(angle*13+2)+
+
+        .009*Math.sin(angle*17+.5)+
+
+        .006*Math.sin(angle*23+1.2)
+
+    );
+
+}
+
+
+// =====================================================
+// 13. BERGE
+// =====================================================
+
+const peaks=[];
+
+function addMountains(cx,cz,count,sx,sz,min,max){
+
+    for(let i=0;i<count;i++){
+
+        peaks.push({
+
+            x:cx+(random()-.5)*sx,
+
+            z:cz+(random()-.5)*sz,
+
+            h:min+random()*(max-min),
+
+            rx:55+random()*100,
+
+            rz:60+random()*110
+
+        });
+
+    }
+
+}
+
+
+addMountains(-550,720,13,600,480,65,230);
+
+addMountains(240,830,9,520,320,50,170);
+
+addMountains(-890,100,8,300,700,35,125);
+
+addMountains(740,320,7,440,430,40,135);
+
+addMountains(-150,-50,5,360,300,25,80);
+
+
+// =====================================================
+// 14. TÄLER
+// =====================================================
+
+const valleyPaths=[
+
+    [
+        [-1100,1000],
+        [-950,800],
+        [-770,600],
+        [-590,390],
+        [-400,180],
+        [-230,-70],
+        [-100,-340]
+    ],
+
+    [
+        [-1100,-300],
+        [-920,-240],
+        [-740,-180],
+        [-540,-100],
+        [-330,10],
+        [-120,120]
+    ],
+
+    [
+        [350,1100],
+        [440,850],
+        [570,620],
+        [700,360],
+        [820,100],
+        [1040,-220]
+    ],
+
+    [
+        [-900,-650],
+        [-700,-570],
+        [-450,-500],
+        [-180,-450],
+        [100,-490],
+        [380,-550],
+        [740,-510]
+    ],
+
+    [
+        [650,-850],
+        [520,-680],
+        [400,-510],
+        [250,-340],
+        [120,-150]
+    ]
+
+];
+
+
+// =====================================================
+// 15. WEGE
+// =====================================================
+
+const trails=[
+
+    [
+        [-1080,700],
+        [-900,780],
+        [-730,800],
+        [-550,730],
+        [-380,610],
+        [-190,460],
+        [-60,350]
+    ],
+
+    [
+        [-1090,130],
+        [-900,60],
+        [-740,-5],
+        [-580,-80],
+        [-420,-180],
+        [-250,-290]
+    ],
+
+    [
+        [-800,-830],
+        [-620,-710],
+        [-410,-610],
+        [-170,-640],
+        [80,-710],
+        [330,-730],
+        [620,-650],
+        [900,-500]
+    ],
+
+    [
+        [180,1000],
+        [330,860],
+        [490,730],
+        [650,600],
+        [820,420],
+        [970,220],
+        [1060,70]
+    ],
+
+    [
+        [-790,410],
+        [-590,350],
+        [-390,250],
+        [-170,140],
+        [60,100],
+        [300,180],
+        [550,260],
+        [800,300]
+    ],
+
+    [
+        [-1010,570],
+        [-900,500],
+        [-910,370],
+        [-790,290],
+        [-830,170],
+        [-680,80],
+        [-570,30]
+    ],
+
+    [
+        [-390,-1030],
+        [-220,-910],
+        [-90,-810],
+        [80,-840],
+        [230,-920],
+        [430,-990]
+    ],
+
+    [
+        [910,-900],
+        [1030,-720],
+        [1060,-480],
+        [1010,-250],
+        [900,-40],
+        [790,100]
+    ],
+
+    [
+        [-90,890],
+        [60,770],
+        [180,650],
+        [310,520],
+        [460,440],
+        [620,370]
+    ]
+
+];
+
+
+// =====================================================
+// 16. SEGMENTE
+// =====================================================
+
+function makeSegments(paths){
+
+    const result=[];
+
+    for(const path of paths){
+
+        for(let i=0;i<path.length-1;i++){
+
+            const a=path[i];
+            const b=path[i+1];
+
+            result.push({
+
+                ax:a[0],
+                az:a[1],
+
+                bx:b[0],
+                bz:b[1],
+
+                minX:Math.min(a[0],b[0]),
+                maxX:Math.max(a[0],b[0]),
+
+                minZ:Math.min(a[1],b[1]),
+                maxZ:Math.max(a[1],b[1])
+
+            });
+
+        }
+
+    }
+
+    return result;
+
+}
+
+
+const valleySegments=makeSegments(valleyPaths);
+
+const trailSegments=makeSegments(trails);
+
+
+// =====================================================
+// 17. DISTANZ ZU WEGEN
+// =====================================================
+
+function distanceToPath(x,z,segments,padding=2000){
+
+    let best=Infinity;
+
+    for(const s of segments){
+
+        if(
+
+            x<s.minX-padding ||
+
+            x>s.maxX+padding ||
+
+            z<s.minZ-padding ||
+
+            z>s.maxZ+padding
+
+        ){
+
+            continue;
+
+        }
+
+
+        const dx=s.bx-s.ax;
+        const dz=s.bz-s.az;
+
+        const length2=dx*dx+dz*dz;
+
+        let t=(
+
+            (x-s.ax)*dx+
+            (z-s.az)*dz
+
+        )/length2;
+
+        t=clamp(t,0,1);
+
+
+        const px=s.ax+dx*t;
+        const pz=s.az+dz*t;
+
+        best=Math.min(
+            best,
+            Math.hypot(x-px,z-pz)
+        );
+
+    }
+
+    return best;
+
+}
+
+
+// =====================================================
+// 18. TROCKENBECKEN
+// =====================================================
+
+const basins=[
+
+    {x:-600,z:-100,r:90,depth:32},
+
+    {x:500,z:-500,r:120,depth:42},
+
+    {x:-850,z:-430,r:85,depth:27},
+
+    {x:750,z:750,r:110,depth:38},
+
+    {x:130,z:800,r:90,depth:25},
+
+    {x:-200,z:-850,r:130,depth:34},
+
+    {x:1000,z:-350,r:80,depth:23}
+
+];
+
+
+function basinInfo(x,z){
+
+    let depth=0;
+    let influence=0;
+
+    for(const b of basins){
+
+        const d=Math.hypot(
+            x-b.x,
+            z-b.z
+        )/b.r;
+
+        depth+=b.depth*Math.exp(
+            -Math.pow(d,4)
+        );
+
+        influence=Math.max(
+            influence,
+            Math.exp(-Math.pow(d,6))
+        );
+
+    }
+
+    return {depth,influence};
+
+}
+
+
+// =====================================================
+// 19. KRATER
+// =====================================================
+
+function craterInfo(x,z){
+
+    const dx=x-660;
+    const dz=z-240;
+
+    const d=Math.hypot(dx,dz);
+
+    const angle=Math.atan2(dz,dx);
+
+    const irregular=
+
+        d+
+
+        17*Math.sin(angle*5)+
+
+        11*Math.sin(angle*9)+
+
+        6*fbm(x*.025,z*.025,2);
+
+
+    const bowl=-110*Math.exp(
+        -Math.pow(irregular/185,2)
+    );
+
+    const rim=58*Math.exp(
+        -Math.pow((irregular-235)/48,2)
+    );
+
+    return {
+
+        height:bowl+rim,
+
+        mask:Math.exp(
+            -Math.pow(irregular/260,4)
+        )
+
+    };
+
+}
+
+
+// =====================================================
+// 20. GELÄNDEBERECHNUNG
+// =====================================================
+
+function terrainAt(x,z){
+
+    const distance=Math.hypot(x,z);
+
+    const angle=Math.atan2(z,x);
+
+    const radial=distance/islandRadius(angle);
+
+
+    if(radial>=1){
+
+        return {
+
+            h:-10,
+
+            inside:false,
+
+            mountain:0,
+
+            valley:0,
+
+            trailDistance:999,
+
+            basin:0,
+
+            crater:0,
+
+            desert:0
+
+        };
+
+    }
+
+
+    const broad=fbm(
+        x*.0018,z*.0018,4
+    )*24;
+
+    const medium=fbm(
+        x*.006,z*.006,4
+    )*13;
+
+    const small=fbm(
+        x*.019,z*.019,4
+    )*5;
+
+    const detail=fbm(
+        x*.046,z*.046,3
+    )*2.5;
+
+
+    const northwest=gauss(
+        x,z,-480,680,480,350
+    );
+
+    const north=gauss(
+        x,z,230,850,540,300
+    );
+
+    const west=gauss(
+        x,z,-920,100,300,700
+    );
+
+    const east=gauss(
+        x,z,750,300,390,470
+    );
+
+
+    const mountain=Math.max(
+        northwest,
+        north*.78,
+        west*.65,
+        east*.75
+    );
+
+
+    let h=45+broad+medium+small+detail;
+
+    h+=northwest*85;
+    h+=north*65;
+    h+=west*50;
+    h+=east*48;
+
+
+    // Bergkämme
+
+    h+=Math.max(
+        0,
+        ridge(x*.006,z*.006)-.53
+    )*145*mountain;
+
+
+    // Einzelne Bergspitzen
+
+    for(const p of peaks){
+
+        if(
+            Math.abs(x-p.x)<p.rx*2.8 &&
+            Math.abs(z-p.z)<p.rz*2.8
+        ){
+
+            h+=p.h*gauss(
+                x,z,p.x,p.z,p.rx,p.rz
+            );
+
+        }
+
+    }
+
+
+    // Hügel
+
+    const hills=gauss(
+        x,z,0,-620,850,430
+    );
+
+    h+=hills*(
+        21+15*fbm(x*.009,z*.009,3)
+    );
+
+
+    // Täler
+
+    const valleyDistance=distanceToPath(
+        x,z,valleySegments
+    );
+
+    const valley=Math.exp(
+        -Math.pow(valleyDistance/125,2)
+    );
+
+    h-=33*Math.exp(
+        -Math.pow(valleyDistance/75,2)
+    );
+
+    h-=9*Math.exp(
+        -Math.pow(valleyDistance/150,2)
+    );
+
+
+    // Krater
+
+    const crater=craterInfo(x,z);
+
+    h+=crater.height;
+
+
+    // Trockene Becken
+
+    const basin=basinInfo(x,z);
+
+    h-=basin.depth;
+
+
+    // Erosion
+
+    h-=Math.max(
+        0,
+        fbm(x*.035,z*.035,3)
+    )*5;
+
+
+    // Wege
+
+    const trailDistance=distanceToPath(
+        x,z,trailSegments
+    );
+
+    const trail=1-smooth(
+        3,
+        10,
+        trailDistance
+    );
+
+    h-=trail*1.4;
+
+
+    // Südliche Sandzone
+
+    const desert=smooth(
+        -150,
+        650,
+        -z+x*.12
+    );
+
+
+    // Sanfter Küstenabfall
+
+    const edgeFade=1-smooth(
+        .91,
+        1,
+        radial
+    );
+
+    h=-10+(h+10)*edgeFade;
+
+
+    return {
+
+        h,
+
+        inside:true,
+
+        mountain,
+
+        valley,
+
+        trailDistance,
+
+        basin:basin.influence,
+
+        crater:crater.mask,
+
+        desert
+
+    };
+
+}
+
+
+// =====================================================
+// 21. EINFACHE CARTOON-FARBEN
+// =====================================================
+
+function blendColor(a,b,t){
+
+    return [
+
+        lerp(a[0],b[0],t),
+
+        lerp(a[1],b[1],t),
+
+        lerp(a[2],b[2],t)
+
+    ];
+
+}
+
+
+function getPaintColor(id){
+
+    // WICHTIG:
+    // terrainData wird VOR diesem Funktionsaufruf gefüllt.
+
+    const h=terrainData.heights[id];
+
+    const slope=terrainData.slopes[id];
+
+    const mountain=terrainData.mountainData[id];
+
+    const desert=terrainData.desertData[id];
+
+    const trailDistance=terrainData.trailDistanceData[id];
+
+
+    const gx=id%GRID;
+
+    const gy=Math.floor(id/GRID);
+
+    const x=-HALF+gx*STEP;
+
+    const z=-HALF+gy*STEP;
+
+
+    // Farbpalette
+
+    const GREEN=[120,189,73];
+
+    const GREY_LIGHT=[153,155,153];
+
+    const GREY_DARK=[103,108,109];
+
+    const SAND=[217,185,130];
+
+
+    let color=GREEN.slice();
+
+
+    // Zwei zusammenhängende Grautöne
+
+    const grayPattern=fbm(
+        x*.012,
+        z*.012,
+        2
+    );
+
+    const gray=grayPattern>.03
+        ? GREY_LIGHT
+        : GREY_DARK;
+
+
+    // Steile Hänge werden grau
+
+    const rockAmount=clamp(
+
+        smooth(.13,.52,slope)*.92+
+
+        mountain*smooth(95,265,h)*.38,
+
+        0,
+
+        .98
+
+    );
+
+
+    color=blendColor(
+        color,
+        gray,
+        rockAmount
+    );
+
+
+    // Sandflächen
+
+    const southernSand=smooth(
+        .38,.8,desert
+    )*.86;
+
+    const beachSand=smooth(
+        1060,1120,Math.hypot(x,z)
+    )*.8;
+
+    const pathSand=(
+        1-smooth(3,10,trailDistance)
+    )*.88;
+
+
+    const sandAmount=Math.max(
+        southernSand,
+        beachSand,
+        pathSand
+    );
+
+
+    color=blendColor(
+        color,
+        SAND,
+        sandAmount
+    );
+
+
+    return color.map(v=>Math.round(
+        clamp(v,0,255)
+    ));
+
+}
+
+
+// =====================================================
+// 22. SOFORTIGE 3D-VORSCHAU
+// =====================================================
+
+function createPreview(){
+
+    const RES=80;
+
+    const positions=[];
+
+    const indices=[];
+
+
+    for(let j=0;j<=RES;j++){
+
+        const z=-HALF+j*MAP_SIZE/RES;
+
+        for(let i=0;i<=RES;i++){
+
+            const x=-HALF+i*MAP_SIZE/RES;
+
+            const t=terrainAt(x,z);
+
+            positions.push(x,t.h,z);
+
+        }
+
+    }
+
+
+    for(let j=0;j<RES;j++){
+
+        for(let i=0;i<RES;i++){
+
+            const a=j*(RES+1)+i;
+
+            const b=a+1;
+
+            const c=a+RES+1;
+
+            const d=c+1;
+
+            const x=-HALF+(i+.5)*MAP_SIZE/RES;
+
+            const z=-HALF+(j+.5)*MAP_SIZE/RES;
+
+            if(!terrainAt(x,z).inside)continue;
+
+            indices.push(
+                a,c,b,
+                c,d,b
+            );
+
+        }
+
+    }
+
+
+    const geometry=new THREE.BufferGeometry();
+
+    geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions,3)
+    );
+
+    geometry.setIndex(indices);
+
+    geometry.computeVertexNormals();
+
+
+    previewMesh=new THREE.Mesh(
+
+        geometry,
+
+        new THREE.MeshToonMaterial({
+
+            color:0x78bd49,
+
+            gradientMap:gradient,
+
+            side:THREE.DoubleSide
+
+        })
+
+    );
+
+    scene.add(previewMesh);
+
+}
+
+
+// =====================================================
+// 23. HAUPTLANDSCHAFT
+// =====================================================
+
+async function buildTerrain(){
+
+    const positions=new Float32Array(COUNT*3);
+
+    const uvs=new Float32Array(COUNT*2);
+
+    const heights=new Float32Array(COUNT);
+
+    const mountainData=new Float32Array(COUNT);
+
+    const valleyData=new Float32Array(COUNT);
+
+    const trailDistanceData=new Float32Array(COUNT);
+
+    const basinData=new Float32Array(COUNT);
+
+    const craterData=new Float32Array(COUNT);
+
+    const desertData=new Float32Array(COUNT);
+
+    const insideData=new Uint8Array(COUNT);
+
+    const slopes=new Float32Array(COUNT);
+
+    let minH=Infinity;
+
+    let maxH=-Infinity;
+
+
+    // Zuerst alle Höheninformationen erzeugen
+
+    for(let j=0;j<=N;j++){
+
+        const z=-HALF+j*STEP;
+
+        for(let i=0;i<=N;i++){
+
+            const x=-HALF+i*STEP;
+
+            const id=j*GRID+i;
+
+            const t=terrainAt(x,z);
+
+
+            heights[id]=t.h;
+
+            mountainData[id]=t.mountain;
+
+            valleyData[id]=t.valley;
+
+            trailDistanceData[id]=t.trailDistance;
+
+            basinData[id]=t.basin;
+
+            craterData[id]=t.crater;
+
+            desertData[id]=t.desert;
+
+            insideData[id]=t.inside?1:0;
+
+
+            positions[id*3]=x;
+
+            positions[id*3+1]=t.h;
+
+            positions[id*3+2]=z;
+
+
+            uvs[id*2]=i/N;
+
+            uvs[id*2+1]=j/N;
+
+
+            if(t.inside){
+
+                minH=Math.min(minH,t.h);
+
+                maxH=Math.max(maxH,t.h);
+
+            }
+
+        }
+
+
+        if(j%12===0){
+
+            progress(
+                5+j/N*28,
+                "Modelliere Terrain: "+Math.floor(j/N*100)+"%"
+            );
+
+            await frame();
+
+        }
+
+    }
+
+
+    // Hangneigung
+
+    for(let j=1;j<N;j++){
+
+        for(let i=1;i<N;i++){
+
+            const id=j*GRID+i;
+
+            const dx=(
+                heights[id+1]-heights[id-1]
+            )/(STEP*2);
+
+            const dz=(
+                heights[id+GRID]-heights[id-GRID]
+            )/(STEP*2);
+
+            slopes[id]=Math.sqrt(
+                dx*dx+dz*dz
+            );
+
+        }
+
+    }
+
+
+    // =================================================
+    // WICHTIGER FEHLER FIX:
+    // terrainData ZUERST speichern.
+    // Erst DANACH getPaintColor() aufrufen.
+    // =================================================
+
+    terrainData={
+
+        heights,
+
+        slopes,
+
+        mountainData,
+
+        valleyData,
+
+        trailDistanceData,
+
+        basinData,
+
+        craterData,
+
+        desertData,
+
+        insideData,
+
+        minH,
+
+        maxH
+
+    };
+
+
+    // Jetzt erst Farben erzeugen
+
+    const colors=new Float32Array(COUNT*3);
+
+    const rgb=new Uint8Array(COUNT*4);
+
+
+    for(let i=0;i<COUNT;i++){
+
+        const color=getPaintColor(i);
+
+        colors[i*3]=THREE.MathUtils.srgbToLinear(
+            color[0]/255
+        );
+
+        colors[i*3+1]=THREE.MathUtils.srgbToLinear(
+            color[1]/255
+        );
+
+        colors[i*3+2]=THREE.MathUtils.srgbToLinear(
+            color[2]/255
+        );
+
+        rgb[i*4]=color[0];
+
+        rgb[i*4+1]=color[1];
+
+        rgb[i*4+2]=color[2];
+
+        rgb[i*4+3]=255;
+
+
+        if(i%30000===0){
+
+            progress(
+                35+i/COUNT*12,
+                "Färbe Landschaft ..."
+            );
+
+            await frame();
+
+        }
+
+    }
+
+
+    terrainData.rgb=rgb;
+
+
+    // =================================================
+    // DREIECKE
+    // =================================================
+
+    const indexArray=new Uint32Array(N*N*6);
+
+    let count=0;
+
+
+    for(let j=0;j<N;j++){
+
+        for(let i=0;i<N;i++){
+
+            const a=j*GRID+i;
+
+            const b=a+1;
+
+            const c=a+GRID;
+
+            const d=c+1;
+
+
+            if(
+                !insideData[a] &&
+                !insideData[b] &&
+                !insideData[c] &&
+                !insideData[d]
+            ){
+                continue;
+            }
+
+
+            indexArray[count++]=a;
+
+            indexArray[count++]=c;
+
+            indexArray[count++]=b;
+
+            indexArray[count++]=c;
+
+            indexArray[count++]=d;
+
+            indexArray[count++]=b;
+
+        }
+
+
+        if(j%60===0)await frame();
+
+    }
+
+
+    const geometry=new THREE.BufferGeometry();
+
+    geometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(positions,3)
+    );
+
+    geometry.setAttribute(
+        "uv",
+        new THREE.BufferAttribute(uvs,2)
+    );
+
+    geometry.setAttribute(
+        "color",
+        new THREE.BufferAttribute(colors,3)
+    );
+
+    geometry.setIndex(
+        new THREE.BufferAttribute(
+            indexArray.subarray(0,count),
+            1
+        )
+    );
+
+
+    geometry.computeVertexNormals();
+
+    geometry.computeBoundingSphere();
+
+    terrainGeometry=geometry;
+
+
+    terrainMesh=new THREE.Mesh(
+
+        geometry,
+
+        new THREE.MeshToonMaterial({
+
+            color:0xffffff,
+
+            vertexColors:true,
+
+            gradientMap:gradient,
+
+            side:THREE.DoubleSide
+
+        })
+
+    );
+
+
+    terrainMesh.name="MINI_ROYALE_TERRAIN";
+
+
+    islandGroup=new THREE.Group();
+
+    islandGroup.name="MINI_ROYALE_WORLD";
+
+    islandGroup.add(terrainMesh);
+
+    scene.add(islandGroup);
+
+
+    if(previewMesh){
+
+        scene.remove(previewMesh);
+
+        previewMesh.geometry.dispose();
+
+        previewMesh.material.dispose();
+
+        previewMesh=null;
+
+    }
+
+
+    return count/3;
+
+}
+
+
+// =====================================================
+// 24. GEMALTE TEXTUR FÜR PNG-EXPORT
+// =====================================================
+
+async function createTexture(){
+
+    const canvas=document.createElement("canvas");
+
+    canvas.width=GRID;
+
+    canvas.height=GRID;
+
+    const context=canvas.getContext("2d");
+
+    const image=context.createImageData(GRID,GRID);
+
+
+    for(let y=0;y<GRID;y++){
+
+        for(let x=0;x<GRID;x++){
+
+            const source=(y*GRID+x)*4;
+
+            const target=((N-y)*GRID+x)*4;
+
+            image.data[target]=terrainData.rgb[source];
+
+            image.data[target+1]=terrainData.rgb[source+1];
+
+            image.data[target+2]=terrainData.rgb[source+2];
+
+            image.data[target+3]=255;
+
+        }
+
+    }
+
+
+    context.putImageData(image,0,0);
+
+
+    const finalCanvas=document.createElement("canvas");
+
+    finalCanvas.width=TEXTURE_SIZE;
+
+    finalCanvas.height=TEXTURE_SIZE;
+
+    const finalContext=finalCanvas.getContext("2d");
+
+    finalContext.imageSmoothingEnabled=true;
+
+    finalContext.imageSmoothingQuality="high";
+
+    finalContext.drawImage(
+        canvas,
+        0,
+        0,
+        TEXTURE_SIZE,
+        TEXTURE_SIZE
+    );
+
+
+    terrainCanvas=finalCanvas;
+
+}
+
+
+// =====================================================
+// 25. DOWNLOAD
+// =====================================================
+
+function downloadBlob(blob,name){
+
+    const url=URL.createObjectURL(blob);
+
+    const link=document.createElement("a");
+
+    link.href=url;
+
+    link.download=name;
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    link.remove();
+
+
+    setTimeout(()=>{
+        URL.revokeObjectURL(url);
+    },30000);
+
+}
+
+
+// =====================================================
+// 26. GLB-EXPORT
+// =====================================================
+
+function addBufferView(array,target,parts,views){
+
+    let offset=0;
+
+    for(const part of parts){
+        offset+=part.byteLength;
+    }
+
+    const padding=(4-offset%4)%4;
+
+    if(padding){
+        parts.push(new Uint8Array(padding));
+    }
+
+    offset+=padding;
+
+
+    const bytes=new Uint8Array(
+        array.buffer,
+        array.byteOffset,
+        array.byteLength
+    );
+
+    parts.push(bytes);
+
+
+    views.push({
+
+        buffer:0,
+
+        byteOffset:offset,
+
+        byteLength:bytes.byteLength,
+
+        target
+
+    });
+
+    return views.length-1;
+
+}
+
+
+function buildGLB(){
+
+    const positions=terrainGeometry.attributes.position.array;
+
+    const normals=terrainGeometry.attributes.normal.array;
+
+    const colors=terrainGeometry.attributes.color.array;
+
+    const indices=terrainGeometry.index.array;
+
+
+    const parts=[];
+
+    const views=[];
+
+
+    const positionView=addBufferView(
+        positions,34962,parts,views
+    );
+
+    const normalView=addBufferView(
+        normals,34962,parts,views
+    );
+
+    const colorView=addBufferView(
+        colors,34962,parts,views
+    );
+
+    const indexView=addBufferView(
+        indices,34963,parts,views
+    );
+
+
+    let binLength=0;
+
+    for(const p of parts){
+        binLength+=p.byteLength;
+    }
+
+
+    const binary=new Uint8Array(binLength);
+
+    let cursor=0;
+
+    for(const p of parts){
+        binary.set(p,cursor);
+        cursor+=p.byteLength;
+    }
+
+
+    const vertexCount=positions.length/3;
+
+    const gltf={
+
+        asset:{
+            version:"2.0",
+            generator:"MINI ROYALE Island Generator"
+        },
+
+        scene:0,
+
+        scenes:[
+            {nodes:[0]}
+        ],
+
+        nodes:[
+            {
+                name:"MINI_ROYALE_TERRAIN",
+                mesh:0
+            }
+        ],
+
+        meshes:[
+            {
+                name:"CARTOON_LANDSCAPE",
+                primitives:[
+                    {
+                        attributes:{
+                            POSITION:0,
+                            NORMAL:1,
+                            COLOR_0:2
+                        },
+                        indices:3,
+                        material:0,
+                        mode:4
+                    }
+                ]
+            }
+        ],
+
+        materials:[
+            {
+                name:"Green_Grey_Sand",
+                pbrMetallicRoughness:{
+                    baseColorFactor:[1,1,1,1],
+                    metallicFactor:0,
+                    roughnessFactor:1
+                },
+                doubleSided:true
+            }
+        ],
+
+        buffers:[
+            {byteLength:binLength}
+        ],
+
+        bufferViews:views,
+
+        accessors:[
+
+            {
+                bufferView:positionView,
+                componentType:5126,
+                count:vertexCount,
+                type:"VEC3",
+                min:[-HALF,terrainData.minH,-HALF],
+                max:[HALF,terrainData.maxH,HALF]
+            },
+
+            {
+                bufferView:normalView,
+                componentType:5126,
+                count:vertexCount,
+                type:"VEC3"
+            },
+
+            {
+                bufferView:colorView,
+                componentType:5126,
+                count:vertexCount,
+                type:"VEC3"
+            },
+
+            {
+                bufferView:indexView,
+                componentType:5125,
+                count:indices.length,
+                type:"SCALAR",
+                min:[0],
+                max:[vertexCount-1]
+            }
+
+        ]
+
+    };
+
+
+    const encoder=new TextEncoder();
+
+    let jsonBytes=encoder.encode(
+        JSON.stringify(gltf)
+    );
+
+    const jsonPadding=(4-jsonBytes.length%4)%4;
+
+    if(jsonPadding){
+
+        const padded=new Uint8Array(
+            jsonBytes.length+jsonPadding
+        );
+
+        padded.fill(32);
+
+        padded.set(jsonBytes);
+
+        jsonBytes=padded;
+
+    }
+
+
+    const binPadding=(4-binary.length%4)%4;
+
+    const totalBinLength=binary.length+binPadding;
+
+    const totalLength=
+        12+
+        8+jsonBytes.length+
+        8+totalBinLength;
+
+
+    const output=new ArrayBuffer(totalLength);
+
+    const view=new DataView(output);
+
+    let offset=0;
+
+
+    // GLB Header
+
+    view.setUint32(offset,0x46546c67,true);
+    offset+=4;
+
+    view.setUint32(offset,2,true);
+    offset+=4;
+
+    view.setUint32(offset,totalLength,true);
+    offset+=4;
+
+
+    // JSON Chunk
+
+    view.setUint32(offset,jsonBytes.length,true);
+    offset+=4;
+
+    view.setUint32(offset,0x4e4f534a,true);
+    offset+=4;
+
+    new Uint8Array(
+        output,
+        offset,
+        jsonBytes.length
+    ).set(jsonBytes);
+
+    offset+=jsonBytes.length;
+
+
+    // BIN Chunk
+
+    view.setUint32(offset,totalBinLength,true);
+    offset+=4;
+
+    view.setUint32(offset,0x004e4942,true);
+    offset+=4;
+
+    new Uint8Array(
+        output,
+        offset,
+        binary.length
+    ).set(binary);
+
+
+    return new Blob(
+        [output],
+        {type:"model/gltf-binary"}
+    );
+
+}
+
+
+$("export").onclick=async()=>{
+
+    try{
+
+        status("Erstelle GLB ...");
+
+        await frame();
+
+        const blob=buildGLB();
+
+        downloadBlob(
+            blob,
+            "MINI_ROYALE_CARTOON_ISLAND.glb"
+        );
+
+        status(
+            "GLB exportiert · "+
+            (blob.size/1024/1024).toFixed(1)+
+            " MB"
+        );
+
+    }catch(error){
+
+        console.error(error);
+
+        status("GLB-Fehler: "+error.message);
+
+    }
+
+};
+
+
+// =====================================================
+// 27. PNG-HEIGHTMAP 16 BIT
+// =====================================================
+
+function crc32(data){
+
+    let crc=0xffffffff;
+
+    for(let i=0;i<data.length;i++){
+
+        crc^=data[i];
+
+        for(let j=0;j<8;j++){
+
+            crc=(crc>>>1)^(
+                (crc&1)?0xedb88320:0
+            );
+
+        }
+
+    }
+
+    return (crc^0xffffffff)>>>0;
+
+}
+
+
+function u32(v){
+
+    const bytes=new Uint8Array(4);
+
+    new DataView(bytes.buffer).setUint32(
+        0,v>>>0,false
+    );
+
+    return bytes;
+
+}
+
+
+function pngChunk(type,data){
+
+    const name=new TextEncoder().encode(type);
+
+    const combined=new Uint8Array(
+        name.length+data.length
+    );
+
+    combined.set(name,0);
+
+    combined.set(data,name.length);
+
+
+    const output=new Uint8Array(
+        12+data.length
+    );
+
+    output.set(u32(data.length),0);
+
+    output.set(name,4);
+
+    output.set(data,8);
+
+    output.set(
+        u32(crc32(combined)),
+        8+data.length
+    );
+
+    return output;
+
+}
+
+
+async function makeHeightmap(){
+
+    const width=1009;
+
+    const height=1009;
+
+    const raw=new Uint8Array(
+        height*(1+width*2)
+    );
+
+    const min=terrainData.minH;
+
+    const max=terrainData.maxH;
+
+    const range=Math.max(.001,max-min);
+
+
+    for(let y=0;y<height;y++){
+
+        const row=y*(1+width*2);
+
+        raw[row]=0;
+
+        const sy=(1-y/(height-1))*N;
+
+        const y0=Math.floor(sy);
+
+        const y1=Math.min(N,y0+1);
+
+        const fy=sy-y0;
+
+
+        for(let x=0;x<width;x++){
+
+            const sx=x/(width-1)*N;
+
+            const x0=Math.floor(sx);
+
+            const x1=Math.min(N,x0+1);
+
+            const fx=sx-x0;
+
+
+            const a=terrainData.heights[y0*GRID+x0];
+
+            const b=terrainData.heights[y0*GRID+x1];
+
+            const c=terrainData.heights[y1*GRID+x0];
+
+            const d=terrainData.heights[y1*GRID+x1];
+
+
+            const h=lerp(
+                lerp(a,b,fx),
+                lerp(c,d,fx),
+                fy
+            );
+
+
+            const value=Math.round(
+                clamp((h-min)/range,0,1)*65535
+            );
+
+            const p=row+1+x*2;
+
+            raw[p]=(value>>>8)&255;
+
+            raw[p+1]=value&255;
+
+        }
+
+
+        if(y%25===0){
+
+            status(
+                "Heightmap: "+
+                Math.floor(y/height*100)+"%"
+            );
+
+            await frame();
+
+        }
+
+    }
+
+
+    if(!window.CompressionStream){
+
+        throw new Error(
+            "PNG-Kompression wird nicht unterstützt."
+        );
+
+    }
+
+
+    const stream=new CompressionStream("deflate");
+
+    const writer=stream.writable.getWriter();
+
+    await writer.write(raw);
+
+    await writer.close();
+
+
+    const compressed=new Uint8Array(
+        await new Response(stream.readable).arrayBuffer()
+    );
+
+
+    const ihdr=new Uint8Array(13);
+
+    const d=new DataView(ihdr.buffer);
+
+    d.setUint32(0,width,false);
+
+    d.setUint32(4,height,false);
+
+    ihdr[8]=16;
+    ihdr[9]=0;
+    ihdr[10]=0;
+    ihdr[11]=0;
+    ihdr[12]=0;
+
+
+    const signature=new Uint8Array([
+        137,80,78,71,13,10,26,10
+    ]);
+
+
+    return new Blob([
+
+        signature,
+
+        pngChunk("IHDR",ihdr),
+
+        pngChunk("IDAT",compressed),
+
+        pngChunk("IEND",new Uint8Array())
+
+    ],{
+        type:"image/png"
+    });
+
+}
+
+
+$("exportHeight").onclick=async()=>{
+
+    try{
+
+        const blob=await makeHeightmap();
+
+        downloadBlob(
+            blob,
+            "MINI_ROYALE_HEIGHTMAP_1009.png"
+        );
+
+        status("16-Bit-Heightmap 1009 × 1009 exportiert.");
+
+    }catch(error){
+
+        console.error(error);
+
+        status("Heightmap-Fehler: "+error.message);
+
+    }
+
+};
+
+
+// =====================================================
+// 28. GEMALTE TEXTUR EXPORT
+// =====================================================
+
+$("exportTexture").onclick=()=>{
+
+    if(!terrainCanvas)return;
+
+    terrainCanvas.toBlob(blob=>{
+
+        if(blob){
+
+            downloadBlob(
+                blob,
+                "MINI_ROYALE_CARTOON_TERRAIN.png"
+            );
+
+            status("Gemalte Textur exportiert.");
+
+        }
+
+    },"image/png");
+
+};
+
+
+// =====================================================
+// 29. KAMERA
+// =====================================================
+
+$("topView").onclick=()=>{
+
+    yaw=0;
+
+    pitch=.08;
+
+    distance=2800;
+
+    target.set(0,0,0);
+
+    updateCamera();
+
+};
+
+
+$("reset").onclick=()=>{
+
+    yaw=.78;
+
+    pitch=.85;
+
+    distance=3700;
+
+    target.set(0,70,0);
+
+    updateCamera();
+
+};
+
+
+// =====================================================
+// 30. INITIALISIEREN
+// =====================================================
+
+async function initialize(){
+
+    try{
+
+        progress(
+            2,
+            "Erstelle erste 3D-Vorschau ..."
+        );
+
+        await frame();
+
+        // Sofort sichtbare Vorschau
+
+        createPreview();
+
+        await frame();
+
+
+        // Hauptlandschaft
+
+        const triangles=await buildTerrain();
+
+
+        // Farbtextur exportbereit machen
+
+        progress(
+            88,
+            "Bereite gemalte Textur vor ..."
+        );
+
+        await createTexture();
+
+
+        // Fertig
+
+        ready=true;
+
+        $("export").disabled=false;
+
+        $("exportHeight").disabled=false;
+
+        $("exportTexture").disabled=false;
+
+
+        progress(
+            100,
+            "3D-Welt fertig! "+
+            Math.round(triangles).toLocaleString("de-DE")+
+            " Dreiecke."
+        );
+
+    }catch(error){
+
+        console.error(error);
+
+        showError(
+            error.message||String(error)
+        );
+
+    }
+
+}
+
+
+// =====================================================
+// 31. RENDERLOOP
+// =====================================================
+
+function animate(){
+
+    requestAnimationFrame(animate);
+
+    renderer.render(scene,camera);
+
+}
+
+animate();
+
+
+// =====================================================
+// 32. FENSTERGRÖSSE
+// =====================================================
+
+window.addEventListener("resize",()=>{
+
+    camera.aspect=innerWidth/innerHeight;
+
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(innerWidth,innerHeight);
+
+});
+
+
+// =====================================================
+// START
+// =====================================================
+
+await initialize();
+
+})();
+</script>
+
+</body>
+</html>
